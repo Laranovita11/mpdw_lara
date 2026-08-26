@@ -1,0 +1,527 @@
+---
+title: "Tugas-Pertemuan-1 Lara Tria Novita [M0401241122]"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+## Library/Packages
+
+*Package* R yang digunakan pada tugas ini adalah: `forecast`, `graphics`, `TTR`, `rio`, `ggplot2`.
+
+```{r}
+#install.packages("forecast")
+#install.packages("graphics")
+#install.packages("TTR")
+#install.packages("rio")
+#install.packages("ggplot2")
+```
+
+Jika sudah ada, silakan panggil library *package* tersebut.
+
+```{r}
+library("forecast")
+library("graphics")
+library("TTR")
+library("rio")
+library("ggplot2")
+```
+
+## Impor Data
+
+Dataset yang digunakan adalah **Daily Minimum Temperatures in Melbourne, Australia (1981-1990)**, berisi 3.650 observasi suhu minimum harian (°C). Data ini bersifat publik dan memenuhi ketentuan tugas (panjang data ≥ 500 periode). 
+
+```{r}
+ 
+#via csv 
+data1 <- read.csv("C:/Users/Hp/Downloads/daily-min-temperatures(1).csv")
+
+colnames(data1) <- c("Date", "Temp")
+data1$Date <- as.Date(data1$Date)
+data1$Periode <- 1:nrow(data1)
+
+# menampilkan 5 data pertama
+head(data1)
+
+cat("Jumlah periode keseluruhan data:", nrow(data1), "\n")
+```
+
+## Pembagian Data ke Anggota Kelompok
+
+Kelompok terdiri atas **5 anggota**. Total data (3.650 observasi) dibagi rata menjadi 5 bagian berurutan sebanyak **730 observasi per orang** (jauh di atas ketentuan minimal 100 observasi/orang), tanpa sisa (3.650 ÷ 5 = 730).
+
+| Anggota | Observasi ke- | Rentang Tanggal |
+|---|---|---|
+| 1 | 1 – 730 | 1 Jan 1981 – 31 Des 1982 |
+| 2 | 731 – 1460 | 1 Jan 1983 – 30 Des 1984 |
+| 3 | 1461 – 2190 | 31 Des 1984 – 30 Des 1986 |
+| 4 | 2191 – 2920 | 31 Des 1986 – 30 Des 1988 |
+| 5 | 2921 – 3650 | 31 Des 1988 – 31 Des 1990 |
+
+Bagian yang menjadi tanggung jawab saya adalah **Anggota 1**, yaitu observasi ke-1 s.d. 730 (**1 Januari 1981 – 31 Desember 1982**, tepat 2 tahun data).
+
+
+```{r}
+jumlah_anggota <- 5
+anggota_ke     <- 1          # 
+
+n_obs     <- floor(nrow(data1) / jumlah_anggota)
+start_idx <- (anggota_ke - 1) * n_obs + 1
+
+data_individu <- data1[start_idx:(start_idx + n_obs - 1), ]
+data_individu$Periode <- 1:nrow(data_individu)
+rownames(data_individu) <- NULL
+
+cat("Anggota ke-", anggota_ke, "dari", jumlah_anggota, "\n")
+cat("Jumlah observasi bagian individu:", nrow(data_individu), "\n")
+cat("Rentang tanggal:", format(min(data_individu$Date)), "s/d", format(max(data_individu$Date)), "\n")
+```
+
+## Eksplorasi Data
+
+`View()` : menampilkan data dalam bentuk tabel (buka di tab terpisah di RStudio), `str()` : menampilkan struktur data, `dim()` : menampilkan dimensi data.
+
+```{r, eval=FALSE}
+View(data_individu)   
+```
+
+```{r}
+str(data_individu)
+dim(data_individu)
+```
+
+Mengubah data agar terbaca sebagai data deret waktu dengan fungsi `ts()`.
+
+```{r}
+data1.ts <- ts(data_individu$Temp)
+summary(data1.ts)
+```
+
+Membuat plot data deret waktu.
+
+```{r}
+ts.plot(data1.ts, xlab="Time Period ", ylab="Suhu (°C)",
+        main = "Time Series Plot Suhu Minimum Harian")
+points(data1.ts)
+
+#menyimpan plot
+dev.copy(png, "plot_data_individu.png")
+dev.off()
+```
+
+Dari plot terlihat data memiliki pola musiman tahunan yang jelas (terlihat dua siklus naik-turun karena rentang datanya mencakup 2 tahun penuh) dengan fluktuasi harian (noise) yang cukup tinggi, namun tidak menunjukkan tren jangka panjang (naik/turun antar tahun) yang kuat pada 730 hari ini.
+
+## Single Moving Average & Double Moving Average
+
+### Pembagian Data
+
+Pembagian data latih dan data uji dilakukan dengan perbandingan 80% data latih dan 20% data uji.
+
+```{r}
+# hitung jumlah data
+n <- nrow(data_individu)
+
+# tentukan batas 80%
+n_train <- floor(0.8 * n)
+
+# bagi data
+training_ma <- data_individu[1:n_train, ]
+testing_ma  <- data_individu[(n_train+1):n, ]
+
+# ubah ke time series
+train_ma.ts <- ts(training_ma$Temp)
+test_ma.ts  <- ts(testing_ma$Temp)
+
+cat("Data latih:", length(train_ma.ts), "| Data uji:", length(test_ma.ts), "\n")
+```
+
+Eksplorasi data dilakukan pada keseluruhan data, data latih, serta data uji menggunakan plot data deret waktu.
+
+```{r}
+#eksplorasi keseluruhan data
+plot(data1.ts, col="red", main="Plot semua data (bagian individu)")
+points(data1.ts)
+
+#eksplorasi data latih
+plot(train_ma.ts, col="blue", main="Plot data latih")
+points(train_ma.ts)
+
+#eksplorasi data uji
+plot(test_ma.ts, col="blue", main="Plot data uji")
+points(test_ma.ts)
+```
+
+Eksplorasi data juga dilakukan menggunakan *package* `ggplot2`.
+
+```{r}
+ggplot() +
+  geom_line(data = training_ma, aes(x = Periode, y = Temp, col = "Data Latih")) +
+  geom_line(data = testing_ma, aes(x = Periode, y = Temp, col = "Data Uji")) +
+  labs(x = "Periode Waktu", y = "Suhu (°C)", color = "Legend") +
+  scale_colour_manual(name="Keterangan:", breaks = c("Data Latih", "Data Uji"),
+                      values = c("blue", "red")) +
+  theme_bw() + theme(legend.position = "bottom",
+                     plot.caption = element_text(hjust=0.5, size=12))
+```
+
+### Single Moving Average (SMA)
+
+Ide dasar dari Single Moving Average (SMA) adalah data suatu periode dipengaruhi oleh data periode sebelumnya. Metode pemulusan ini cocok digunakan untuk pola data stasioner/konstan. Prinsip dasarnya, data pemulusan pada periode ke-t merupakan rata-rata dari m buah data pada periode ke-t hingga periode ke (t-m+1).
+
+$$
+S_t = \frac{1}{m} \sum_{i=t-m+1}^{t} X_i
+$$
+
+Data pemulusan pada periode ke-t selanjutnya digunakan sebagai nilai peramalan pada periode ke t+1.
+
+$$
+F_t = S_{t-1}, \quad F_{n,h} = S_n
+$$
+
+Pemulusan menggunakan metode SMA dilakukan dengan fungsi `SMA()`. Karena data bersifat harian dengan pola mingguan yang lemah, digunakan parameter `m=7`.
+
+```{r}
+data.sma <- SMA(train_ma.ts, n = 7)
+data.sma
+```
+
+Data pemulusan pada periode ke-t digunakan sebagai nilai peramalan pada periode ke t+1.
+
+```{r}
+data.ramal <- c(NA, data.sma)
+tail(data.ramal, 10) #forecast 1 periode ke depan
+```
+
+Selanjutnya dilakukan peramalan sebanyak `r length(test_ma.ts)` periode sesuai jumlah data uji. Pada metode SMA, seluruh hasil peramalan ke depan bernilai sama dengan hasil ramalan satu periode ke depan (nilai pemulusan terakhir).
+
+```{r}
+h <- length(test_ma.ts)
+
+data.gab <- cbind(
+  aktual    = c(data1.ts),
+  pemulusan = c(data.sma, rep(NA, h)),
+  ramalan   = c(data.ramal, rep(data.ramal[length(data.ramal)], h - 1)))
+
+tail(data.gab, h + 3)
+```
+
+Plot deret waktu dari hasil peramalan.
+
+```{r}
+ts.plot(data1.ts, xlab="Time Period ", ylab="Suhu (°C)", main= "SMA N=7 Data Suhu")
+points(data1.ts)
+lines(data.gab[,2], col="green", lwd=2)
+lines(data.gab[,3], col="red", lwd=2)
+legend("topleft", c("data aktual","data pemulusan","data peramalan"), lty=8,
+       col=c("black","green","red"), cex=0.6)
+```
+
+Perhitungan akurasi dilakukan dengan ukuran SSE, MSE, dan MAPE, baik pada data latih maupun data uji.
+
+$$
+SSE = \sum_{t=1}^{n} (y_t - \hat{y}_t)^2 \qquad
+MSE = \frac{1}{n} \sum_{t=1}^{n} (y_t - \hat{y}_t)^2 \qquad
+MAPE = \frac{1}{n} \sum_{t=1}^{n} \left|\frac{y_t - \hat{y}_t}{y_t}\right| \times 100
+$$
+
+```{r}
+#Menghitung nilai keakuratan data latih
+error_train.sma <- train_ma.ts - data.ramal[1:length(train_ma.ts)]
+
+SSE_train.sma  <- sum(error_train.sma[8:length(train_ma.ts)]^2)
+MSE_train.sma  <- mean(error_train.sma[8:length(train_ma.ts)]^2)
+MAPE_train.sma <- mean(abs((error_train.sma[8:length(train_ma.ts)]/train_ma.ts[8:length(train_ma.ts)])*100))
+
+akurasi_train.sma <- matrix(c(SSE_train.sma, MSE_train.sma, MAPE_train.sma))
+row.names(akurasi_train.sma) <- c("SSE", "MSE", "MAPE")
+colnames(akurasi_train.sma) <- c("Akurasi m = 7")
+akurasi_train.sma
+```
+
+```{r}
+#Menghitung nilai keakuratan data uji
+error_test.sma <- test_ma.ts - data.gab[(n_train+1):n, 3]
+
+SSE_test.sma  <- sum(error_test.sma^2)
+MSE_test.sma  <- mean(error_test.sma^2)
+MAPE_test.sma <- mean(abs((error_test.sma/test_ma.ts)*100))
+
+akurasi_test.sma <- matrix(c(SSE_test.sma, MSE_test.sma, MAPE_test.sma))
+row.names(akurasi_test.sma) <- c("SSE", "MSE", "MAPE")
+colnames(akurasi_test.sma) <- c("Akurasi m = 7")
+akurasi_test.sma
+```
+
+### Double Moving Average (DMA)
+
+Metode DMA pada dasarnya mirip dengan SMA, namun lebih cocok digunakan untuk pola data tren. Proses pemulusan dengan rata-rata dilakukan sebanyak 2 kali.
+
+-   **Tahap I:** $S_{1,t} = \frac{1}{m}\sum_{i=t-m+1}^{t} X_i$
+-   **Tahap II:** $S_{2,t} = \frac{1}{m}\sum_{i=t-m+1}^{t} S_{1,i}$
+
+Forecast $h$ langkah ke depan: $F_{2,t,t+h} = A_t + B_t\,(h)$, dengan
+$A_t = 2S_{1,t} - S_{2,t}$ dan $B_t = \frac{2}{m-1}(S_{1,t} - S_{2,t})$.
+
+```{r}
+dma <- SMA(data.sma, n = 7)
+At  <- 2*data.sma - dma
+Bt  <- 2/(7-1)*(data.sma - dma)
+data.dma   <- At + Bt
+data.ramal2 <- c(NA, data.dma)
+
+t <- 1:h
+f <- c()
+for (i in t) {
+  f[i] <- At[length(At)] + Bt[length(Bt)]*(i)
+}
+
+data.gab2 <- cbind(aktual = c(data1.ts),
+                   pemulusan1 = c(data.sma, rep(NA, h)),
+                   pemulusan2 = c(dma, rep(NA, h)),
+                   At = c(At, rep(NA, h)),
+                   Bt = c(Bt, rep(NA, h)),
+                   ramalan = c(data.ramal2, f[-1]))
+tail(data.gab2, h + 3)
+```
+
+```{r}
+ts.plot(data1.ts, xlab="Time Period ", ylab="Suhu (°C)", main= "DMA N=7 Data Suhu")
+points(data1.ts)
+lines(data.gab2[,3], col="green", lwd=2)
+lines(data.gab2[,6], col="red", lwd=2)
+legend("topleft", c("data aktual","data pemulusan","data peramalan"), lty=8,
+       col=c("black","green","red"), cex=0.6)
+```
+
+```{r}
+#Menghitung nilai keakuratan data latih
+error_train.dma <- train_ma.ts - data.ramal2[1:length(train_ma.ts)]
+
+SSE_train.dma  <- sum(error_train.dma[14:length(train_ma.ts)]^2)
+MSE_train.dma  <- mean(error_train.dma[14:length(train_ma.ts)]^2)
+MAPE_train.dma <- mean(abs((error_train.dma[14:length(train_ma.ts)]/train_ma.ts[14:length(train_ma.ts)])*100))
+
+akurasi_train.dma <- matrix(c(SSE_train.dma, MSE_train.dma, MAPE_train.dma))
+row.names(akurasi_train.dma) <- c("SSE", "MSE", "MAPE")
+colnames(akurasi_train.dma) <- c("Akurasi m = 7")
+akurasi_train.dma
+```
+
+```{r}
+#Menghitung nilai keakuratan data uji
+error_test.dma <- test_ma.ts - data.gab2[(n_train+1):n, 6]
+
+SSE_test.dma  <- sum(error_test.dma^2)
+MSE_test.dma  <- mean(error_test.dma^2)
+MAPE_test.dma <- mean(abs((error_test.dma/test_ma.ts)*100))
+
+akurasi_test.dma <- matrix(c(SSE_test.dma, MSE_test.dma, MAPE_test.dma))
+row.names(akurasi_test.dma) <- c("SSE", "MSE", "MAPE")
+colnames(akurasi_test.dma) <- c("Akurasi m = 7")
+akurasi_test.dma
+```
+
+## Single Exponential Smoothing & Double Exponential Smoothing
+
+Metode *Exponential Smoothing* memberikan bobot yang menurun secara eksponensial pada data historis, sehingga nilai terbaru mendapat bobot lebih besar. SES cocok untuk data tanpa tren/musiman, sedangkan DES mampu menangkap tren.
+
+### Single Exponential Smoothing (SES)
+
+$$ \tilde{y}_T=\lambda y_t+(1-\lambda)\tilde{y}_{T-1} $$
+
+Pemulusan SES dilakukan dengan fungsi `ses()` dari *package* `forecast`, mencoba beberapa nilai $\lambda$ (alpha) serta nilai optimum (`alpha = NULL`).
+
+```{r}
+ses.1 <- ses(train_ma.ts, h = h, alpha = 0.2)
+ses.2 <- ses(train_ma.ts, h = h, alpha = 0.7)
+ses.opt <- ses(train_ma.ts, h = h, alpha = NULL)
+
+cat("alpha optimum SES:", round(ses.opt$model$par["alpha"], 3), "\n")
+```
+
+```{r}
+autoplot(ses.opt) +
+  autolayer(fitted(ses.opt), series="Fitted") +
+  ylab("Suhu (°C)") + xlab("Periode")
+```
+
+#### Akurasi Data Latih
+
+```{r}
+# Objek ses() tidak menyimpan $SSE langsung, sehingga dihitung dari residual model
+SSE1  <- sum(ses.1$model$residuals^2);   MSE1  <- SSE1/length(train_ma.ts);   RMSE1  <- sqrt(MSE1)
+SSE2  <- sum(ses.2$model$residuals^2);   MSE2  <- SSE2/length(train_ma.ts);   RMSE2  <- sqrt(MSE2)
+SSEopt<- sum(ses.opt$model$residuals^2); MSEopt<- SSEopt/length(train_ma.ts); RMSEopt<- sqrt(MSEopt)
+
+akurasi_train.ses <- data.frame(
+  Skenario = c("alpha=0.2", "alpha=0.7", "alpha optimum"),
+  SSE  = c(SSE1, SSE2, SSEopt),
+  MSE  = c(MSE1, MSE2, MSEopt),
+  RMSE = c(RMSE1, RMSE2, RMSEopt))
+akurasi_train.ses
+```
+
+#### Akurasi Data Uji
+
+```{r}
+# as.numeric() dipakai agar pengurangan tidak terpengaruh atribut index waktu ts()
+aktual_uji <- as.numeric(test_ma.ts)
+selisih1   <- as.numeric(ses.1$mean)   - aktual_uji
+selisih2   <- as.numeric(ses.2$mean)   - aktual_uji
+selisihopt <- as.numeric(ses.opt$mean) - aktual_uji
+
+akurasi_test.ses <- data.frame(
+  Skenario = c("alpha=0.2", "alpha=0.7", "alpha optimum"),
+  SSE  = c(sum(selisih1^2), sum(selisih2^2), sum(selisihopt^2)),
+  MSE  = c(mean(selisih1^2), mean(selisih2^2), mean(selisihopt^2)),
+  MAPE = c(mean(abs(selisih1/aktual_uji)*100),
+           mean(abs(selisih2/aktual_uji)*100),
+           mean(abs(selisihopt/aktual_uji)*100)))
+akurasi_test.ses
+```
+
+Skenario dengan nilai MSE/MAPE data uji terkecil dipilih sebagai model SES terbaik (`alpha optimum`, dipilih otomatis oleh `ses()` berdasarkan minimisasi SSE data latih).
+
+### Double Exponential Smoothing (DES) / Holt's Linear Trend
+
+DES menambahkan komponen tren pada persamaan pemulusan, menggunakan dua parameter: $\alpha$ (level) dan $\beta$ (tren). Pemulusan dilakukan dengan fungsi `holt()`.
+
+```{r}
+des.1 <- holt(train_ma.ts, h = h, alpha = 0.2, beta = 0.1)
+des.2 <- holt(train_ma.ts, h = h, alpha = 0.7, beta = 0.2)
+des.opt <- holt(train_ma.ts, h = h, alpha = NULL, beta = NULL)
+
+cat("alpha optimum:", round(des.opt$model$par["alpha"], 3),
+    "| beta optimum:", round(des.opt$model$par["beta"], 3), "\n")
+```
+
+```{r}
+autoplot(des.opt) +
+  autolayer(fitted(des.opt), series="Fitted") +
+  ylab("Suhu (°C)") + xlab("Periode")
+```
+
+#### Akurasi Data Latih
+
+```{r}
+# Objek holt() tidak menyimpan $SSE langsung, sehingga dihitung dari residual model
+SSEd1  <- sum(des.1$model$residuals^2);   MSEd1  <- SSEd1/length(train_ma.ts);   RMSEd1  <- sqrt(MSEd1)
+SSEd2  <- sum(des.2$model$residuals^2);   MSEd2  <- SSEd2/length(train_ma.ts);   RMSEd2  <- sqrt(MSEd2)
+SSEdopt<- sum(des.opt$model$residuals^2); MSEdopt<- SSEdopt/length(train_ma.ts); RMSEdopt<- sqrt(MSEdopt)
+
+akurasi_train.des <- data.frame(
+  Skenario = c("alpha=0.2;beta=0.1", "alpha=0.7;beta=0.2", "optimum"),
+  SSE  = c(SSEd1, SSEd2, SSEdopt),
+  MSE  = c(MSEd1, MSEd2, MSEdopt),
+  RMSE = c(RMSEd1, RMSEd2, RMSEdopt))
+akurasi_train.des
+```
+
+#### Akurasi Data Uji
+
+```{r}
+dselisih1   <- as.numeric(des.1$mean)   - aktual_uji
+dselisih2   <- as.numeric(des.2$mean)   - aktual_uji
+dselisihopt <- as.numeric(des.opt$mean) - aktual_uji
+
+akurasi_test.des <- data.frame(
+  Skenario = c("alpha=0.2;beta=0.1", "alpha=0.7;beta=0.2", "optimum"),
+  SSE  = c(sum(dselisih1^2), sum(dselisih2^2), sum(dselisihopt^2)),
+  MSE  = c(mean(dselisih1^2), mean(dselisih2^2), mean(dselisihopt^2)),
+  MAPE = c(mean(abs(dselisih1/aktual_uji)*100),
+           mean(abs(dselisih2/aktual_uji)*100),
+           mean(abs(dselisihopt/aktual_uji)*100)))
+akurasi_test.des
+```
+
+#### Perbandingan SES dan DES
+
+```{r}
+MSEfull <- matrix(c(MSEopt, MSEdopt), nrow=1, ncol=2)
+colnames(MSEfull) <- c("ses (optimum)", "des (optimum)")
+row.names(MSEfull) <- "MSE data uji"
+MSEfull
+```
+
+## Pemulusan dengan Holt-Winters
+
+Data suhu memiliki pola musiman **tahunan** yang cukup jelas terlihat pada plot (2 siklus penuh dalam 730 hari). Namun demikian, setelah data dibagi latih:uji (80:20), data latih hanya berisi ± 584 hari (± 1,6 tahun) — belum genap 2 siklus tahunan penuh (2×365 hari), sehingga `HoltWinters()` tidak dapat difit dengan periode musiman tahunan (`frequency = 365`) pada data latih. Oleh karena itu, sebagai pembanding tetap digunakan periode musiman **mingguan** (`frequency = 7`), dengan catatan hasil ini bersifat eksploratif karena pola mingguan pada data suhu memang tidak sekuat pola tahunannya.
+
+```{r}
+train_hw.ts <- ts(training_ma$Temp, frequency = 7)
+test_hw.ts  <- ts(testing_ma$Temp, frequency = 7)
+
+winter.opt <- HoltWinters(train_hw.ts, alpha = NULL, beta = NULL, gamma = NULL,
+                           seasonal = "additive")
+winter.opt
+xhat <- winter.opt$fitted[,1]
+```
+
+```{r}
+forecast.hw <- predict(winter.opt, n.ahead = h)
+
+plot(train_hw.ts, main="Holt-Winters Aditif (p=7)", type="l", col="black")
+lines(xhat, type="l", col="red")
+lines(forecast.hw, type="l", col="blue")
+legend("topleft", c("Data Latih","Fitted","Forecast"), col=c("black","red","blue"),
+       lty=1, cex=0.6)
+```
+
+```{r}
+SSEhw <- winter.opt$SSE
+MSEhw <- SSEhw/length(train_hw.ts)
+RMSEhw <- sqrt(MSEhw)
+
+akurasi_train.hw <- matrix(c(SSEhw, MSEhw, RMSEhw))
+row.names(akurasi_train.hw) <- c("SSE", "MSE", "RMSE")
+colnames(akurasi_train.hw) <- c("Akurasi (data latih)")
+akurasi_train.hw
+
+selisih.hw <- as.numeric(forecast.hw) - aktual_uji
+SSEtest.hw  <- sum(selisih.hw^2)
+MSEtest.hw  <- mean(selisih.hw^2)
+MAPEtest.hw <- mean(abs(selisih.hw/aktual_uji)*100)
+
+akurasi_test.hw <- matrix(c(SSEtest.hw, MSEtest.hw, MAPEtest.hw))
+row.names(akurasi_test.hw) <- c("SSE", "MSE", "MAPE")
+colnames(akurasi_test.hw) <- c("Akurasi (data uji)")
+akurasi_test.hw
+```
+
+## Perbandingan Seluruh Metode & Kesimpulan
+
+Rekap akurasi **data uji** (out-of-sample) dari seluruh metode yang diterapkan, karena akurasi data uji lebih mencerminkan kemampuan generalisasi model dibanding data latih.
+
+```{r}
+rekap <- data.frame(
+  Metode = c("SMA (m=7)", "DMA (m=7)", "SES (optimum)", "DES (optimum)", "Holt-Winters (p=7)"),
+  SSE  = c(SSE_test.sma, SSE_test.dma, sum(selisihopt^2), sum(dselisihopt^2), SSEtest.hw),
+  MSE  = c(MSE_test.sma, MSE_test.dma, mean(selisihopt^2), mean(dselisihopt^2), MSEtest.hw),
+  MAPE = c(MAPE_test.sma, MAPE_test.dma,
+           mean(abs(selisihopt/test_ma.ts)*100),
+           mean(abs(dselisihopt/test_ma.ts)*100),
+           MAPEtest.hw)
+)
+rekap <- rekap[order(rekap$MSE), ]
+rekap
+```
+
+```{r}
+metode_terbaik <- rekap$Metode[1]
+cat("Metode terbaik berdasarkan MSE data uji adalah:", metode_terbaik, "\n")
+```
+
+**Kesimpulan:**
+
+Berdasarkan hasil rekapitulasi di atas, metode **`r metode_terbaik`** memberikan akurasi terbaik (SSE, MSE, dan MAPE data uji paling kecil) untuk bagian data individu ini. Hal ini masuk akal karena:
+
+1. Meskipun data 2 tahun ini menunjukkan **pola musiman tahunan** yang cukup jelas secara visual, komponen tersebut tidak dapat sepenuhnya ditangkap oleh model karena data latih (± 1,6 tahun) belum mencakup 2 siklus tahunan penuh. Metode berbasis tren (DES) pun tidak memberi keuntungan berarti karena **tidak ada tren naik/turun jangka panjang** antar tahun — parameter tren (beta) pada model optimum cenderung kecil.
+2. **Pola musiman mingguan tidak konsisten** pada data suhu harian (berbeda dengan data penjualan/listrik yang punya siklus jelas), sehingga Holt-Winters dengan asumsi periode 7 berisiko *overfitting* terhadap fluktuasi acak.
+3. Metode rata-rata bergerak sederhana dengan window pendek (SMA/DMA, m=7) sudah cukup responsif mengikuti perubahan musiman tahunan yang bersifat gradual, sekaligus efektif meredam noise harian.
+
+Secara umum, pemilihan metode pemulusan terbaik sangat bergantung pada karakteristik pola data (tren, musiman, noise) — bukan metode yang lebih kompleks yang otomatis lebih unggul, melainkan metode yang paling sesuai dengan pola sebenarnya dalam data.
+
+---
+
+
