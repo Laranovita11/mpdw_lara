@@ -1,0 +1,255 @@
+---
+title: " Tugas Pertemuan 2 - MPDW"
+author: "Lara Tria Novita"
+output:
+  html_document:
+    theme: yeti
+    toc: true
+    toc_float: true
+  word_document: default
+  pdf_document: default
+---
+
+# Pemanggilan *Packages*
+
+```{r}
+#install.packages("https://cran.r-project.org/src/contrib/Archive/orcutt/orcutt_2.1.tar.gz", repos = NULL, type = "source")
+```
+
+```{r}
+#install.packages("orcutt")
+```
+
+```{r}
+library(dplyr)
+library(TTR)
+library(forecast)
+library(lmtest) #digunakan untuk uji formal pendeteksian autokorelasi
+library(orcutt) #untuk membuat model regresi Cochrane-Orcutt
+library(HoRM) #untuk membuat model regresi Hildreth-Lu
+```
+
+# Input Data
+
+```{r}
+year <- 1975:2014
+sales <- c(11.7,12.0,12.3,12.8,13.1,13.6,13.9,14.4,14.7,15.3,15.5,15.8,16.1,16.6,16.9,16.7,16.9,17.4,17.6,17.9,18.0,17.9,18.0,18.2,18.2,18.3,18.6,19.2,19.3,19.5,19.2,19.3,19.5,20.0,20.0,19.9,19.8,19.9,20.2,21.0)
+advertising <- c(9.4,9.6,10.0,10.4,10.8,10.9,11.7,12.2,12.5,12.9,13.0,13.2,13.8,14.2,14.6,14.4,15.0,15.4,15.7,15.9,15.9,16.0,16.3,16.2,16.8,17.3,17.6,18.1,18.3,18.5,18.7,18.9,19.2,20.0,20.0,20.3,20.4,21.0,21.5,22.1)        
+dt <- cbind(year,sales,advertising)
+dt <- as.data.frame(dt)
+dt
+```
+
+# Eksplorasi Data
+
+Sebelum melakukan regresi, akan diperlihatkan *plot time-series* dari advertising dan sales untuk melihat pola pergerakan sepanjang waktu.
+
+```{r}
+#Membentuk objek time series
+ts_sales<-ts(dt$sales)
+ts_adv <-ts(dt$advertising,start=1975)
+
+#Membuat plot time series
+ts.plot(ts_sales, xlab="year", ylab="sales", main= "Time Series Plot of sales")
+points(ts_sales)
+
+ts.plot(ts_adv, xlab="year", ylab="advertising", main="Time Series Plot of Advertising")
+points(ts_adv)
+```
+Kedua peubah menunjukkan tren yang naik secara konsisten sepanjang periode 1975-2014, dengan pola pergerakan yang sangat mirip antara Sales dan Advertising. Kemiripan tren ini mengindikasikan hubungan linear yang kuat antar kedua peubah, sekaligus berpotensi menimbulkan autokorelasi pada sisaan jika keduanya diregresikan (karena keduanya sama-sama "berjalan" mengikuti waktu).
+
+```{r}
+#scatterplot
+plot(dt$advertising,dt$sales, xlab = "advertising", ylab="sales", main = "Scatterplot sales vs advertising", pch = 19, col = "steelblue")
+abline(lm(dt$sales ~ dt$advertising), col = "red", lwd = 2)
+```
+
+# Pemodelan Regresi
+```{r}
+model <- lm(sales ~ advertising, data=dt)
+summary(model)
+
+```
+Berdasarkan output di atas, diperoleh model regresi:
+    Ŷt = 5.96513 + 0.71035 Xt
+dengan nilaiR² = 0,9596 yang berarti sekitar 95,96% keragaman sales dapat dijelaskan oleh advertising. 
+
+#Pemeriksaan Asumsi Autokorelasi
+```{r}
+#sisaan 
+sisaan<- residuals(model)
+
+#Diagnostik dengan eksploratif
+par(mfrow = c(2,2),mar=c(3,3,2,1))
+qqnorm(sisaan)
+
+qqline(sisaan, col = "steelblue", lwd = 2)
+
+hist(sisaan, col = "steelblue")
+plot(seq_along(sisaan), sisaan,
+     col = "steelblue",
+     pch = 20,
+     xlab = "Order",
+     ylab = "Sisaan",
+     main = "Sisaan vs Order")
+lines(seq_along(sisaan), sisaan, col = "red")
+abline(a = 0, b = 0, lwd = 2)
+```
+
+Normal Q-Q Plot di atas menunjukkan bahwa sisaan cenderung menyebar normal, tetapi histogram dari sisaan tidak menunjukkan demikian. Selanjutnya, Plot Sisaan vs *Order* menunjukkan pola yang sangat sistematis — residual bergerombol positif dalam waktu lama kemudian bergerombol negatif dalam waktu lama pula (bukan berfluktuasi acak di sekitar nol). Ini adalah ciri khas autokorelasi positif yang kuat pada sisaan.Untuk lebih lanjut akan digunakan uji formal melihat normalitas sisaan dan plot ACF dan PACF untuk melihat apakah ada autokorelasi atau tidak.
+
+```{r}
+#Melihat Sisaan Menyebar Normal/Tidak
+#H0: sisaan mengikuti sebaran normal
+#H1: sisaan tidak mengikuti sebaran normal
+shapiro.test(sisaan)
+ks.test(sisaan, "pnorm", mean=mean(sisaan), sd=sd(sisaan))
+```
+
+Berdasarkan uji formal Saphiro-Wilk didapatkan nilai *p-value* \< $\alpha$ (5%). Artinya, cukup bukti untuk menyatakan sisaan tidak berdistribusi normal. 
+
+Kolmogorov-Smirnov didapatkan nilai *p-value* \> $\alpha$ (5%). Artinya, cukup bukti untuk menyatakan sisaan berdistribusi normal.
+
+```{r}
+#ACF dan PACF identifikasi autokorelasi
+par(mfrow = c(1,2))
+acf(sisaan)
+pacf(sisaan)
+```
+
+Grafik ACF Menunjukkan pola tails off (menurun secara perlahan) dengan banyak lag signifikan. Ini menandakan adanya autokorelasi positif yang kuat pada sisaan (asumsi kebebasan sisaan dilanggar).
+Grafik PACF Menunjukkan pola cuts off (terputus drastis) tepat setelah lag 1.
+
+```{r}
+#Deteksi autokorelasi dengan uji-Durbin Watson
+#H0: tidak ada autokorelasi
+#H1: ada autokorelasi
+dwtest(model)
+```
+Nilai statistik Durbin-Watson (DW) = 0.16204 dengan p-value < 0,0001. Untuk n = 40 dan k = 1 peubah penjelas pada taraf nyata 5%, nilai kritis Durbin-Watson adalah dL ≈ 1.44 dan dU ≈ 1.54.
+DW = 0.16204 < dL = 1.44
+
+maka H0 ditolak, yang berarti terdapat autokorelasi (autokorelasi positif) pada sisaan model regresi. Hasil ini konsisten dengan pola yang terlihat pada plot sisaan sebelumnya. Oleh karena itu, diperlukan penangan autokorelasi. Penanganan yang akan digunakan menggunakan dua metode, yaitu Cochrane-Orcutt dan Hildret-Lu.
+
+# Penanganan Autokorelasi
+
+## Metode Cochrane-Orcutt
+
+Penanganan autokorelasi dilakukan dengan metode Cochrane-Orcutt, yaitu melakukan transformasi generalized least squares (GLS) secara iteratif hingga diperoleh nilai koefisien autokorelasi (ρ) yang konvergen.
+
+```{r}
+#Penanganan Autokorelasi Cochrane-Orcutt
+modelCO<-cochrane.orcutt(model)
+modelCO
+```
+
+Hasil keluaran model setelah dilakukan penanganan adalah sebagai berikut. $$y_i= 10.252375 +  0.488489x_t$$ Hasil juga menunjukkan bahwa nilai DW dan p-value meningkat menjadi $1.93925$ dan $0.378$. Nilai DW sudah berada pada rentang DU \< DW \< 4-DU. Hal tersebut juga didukung dengan nilai *p-value* \> 0.05, artinya belum cukup bukti menyatakan bahwa sisaan terdapat autokorelasi pada taraf nyata 5%. Untuk nilai $ρ ̂$ optimum yang digunakan adalah $0.9031233$. Nilai tersebut dapat diketahui dengan *syntax* berikut.
+
+```{r}
+#Rho optimum
+rho<- modelCO$rho
+rho
+```
+### Plot sisaan setelah Penanganan
+```{r}
+sisaan.co <- dt$sales - (modelCO$coefficients[1] +
+                            modelCO$coefficients[2] * dt$advertising)
+
+plot(year, sisaan.co, type = "o", pch = 19, col = "darkgreen",
+     xlab = "Year", ylab = "Residual",
+     main = "Plot Sisaan terhadap Waktu (Setelah Cochrane-Orcutt)")
+abline(h = 0, lty = 2)
+```
+Pola sisaan setelah penanganan terlihat lebih acak dan tidak menunjukkan pola sistematis dibandingkan dengan plot sisaan sebelum penanganan.
+
+## Metode Hildreth-Lu
+
+Penanganan kedua adalah menggunakan metode Hildreth-Lu. Metode ini akan mencari nilai SSE terkecil.
+```{r}
+library(HoRM)
+
+# ambil y dan x (satu prediktor saja)
+y <- dt$sales
+x <- dt$advertising
+
+# grid search rho 0–0.9
+r <- seq(0, 0.9, by = 0.1)
+tab <- data.frame(
+  rho = r,
+  SSE = sapply(r, function(rr) deviance(hildreth.lu(y, x, rr)))
+)
+
+tab            # tabel rho vs SSE
+rho_hat <- tab$rho[which.min(tab$SSE)]   # rho terbaik
+fit_hl  <- hildreth.lu(y, x, rho_hat)    # model final
+summary(fit_hl)
+
+```
+
+```{r}
+#Penanganan Autokorelasi Hildreth lu
+# Hildreth-Lu
+hildreth.lu.func<- function(r, model){
+  x <- model.matrix(model)[,-1]
+  y <- model.response(model.frame(model))
+  n <- length(y)
+  t <- 2:n
+  y <- y[t]-r*y[t-1]
+  x <- x[t]-r*x[t-1]
+  
+  return(lm(y~x))
+}
+
+#Pencariab rho yang meminimumkan SSE
+r <- c(seq(0.1,0.9, by= 0.1))
+tab <- data.frame("rho" = r, "SSE" = sapply(r, function(i){deviance(hildreth.lu.func(i, model))}))
+round(tab, 4)
+```
+
+Pertama-tama akan dicari di mana kira-kira $ρ$ yang menghasilkan SSE minimum. Pada hasil di atas terlihat $ρ$ minimum ketika 0,9. Namun, hasil tersebut masih kurang teliti sehingga akan dicari kembali $ρ$ yang lebih optimum dengan ketelitian yang lebih. Jika sebelumnya jarak antar $ρ$ yang dicari adalah 0.1, kali ini jarak antar $ρ$ adalah 0.001 dan dilakukan pada selang 0.7 sampai dengan 1.0.
+
+```{r}
+#Rho optimal di sekitar 0.4
+rOpt <- seq(0.7,1.0, by= 0.001)
+tabOpt <- data.frame("rho" = rOpt, "SSE" = sapply(rOpt, function(i){deviance(hildreth.lu.func(i, model))}))
+head(tabOpt[order(tabOpt$SSE),])
+
+#Grafik SSE optimum
+par(mfrow = c(1,1))
+plot(tab$SSE ~ tab$rho , type = "l", xlab = "Rho", ylab = "SSE")
+abline(v = tabOpt[tabOpt$SSE==min(tabOpt$SSE),"rho"], lty = 2, col="red",lwd=2)
+text(x=0.341, y=0.2397500, labels = "rho=0.341", cex = 0.8)
+```
+
+Perhitungan yang dilakukan aplikasi `R` menunjukkan bahwa nilai $ρ$ optimum, yaitu saat SSE terkecil terdapat pada nilai $ρ=0.903$. Hal tersebut juga ditunjukkan pada plot. Selanjutnya, model dapat didapatkan dengan mengevaluasi nilai $ρ$ ke dalam fungsi `hildreth.lu.func`, serta dilanjutkan dengan pengujian autokorelasi dengan uji Durbin-Watson. Namun, setelah pengecekan tersebut tidak lupa koefisien regresi tersebut digunakan untuk transformasi balik. Persamaan hasil transformasi itulah yang menjadi persamaan sesungguhnya.
+
+```{r}
+#Model terbaik
+modelHL <- hildreth.lu.func(0.903, model)
+summary(modelHL)
+
+#Transformasi Balik
+cat("y = ", coef(modelHL)[1]/(1-0.903), "+", coef(modelHL)[2],"x", sep = "")
+```
+
+Setelah dilakukan tranformasi balik, didapatkan model dengan metode Hildreth-Lu sebagai berikut. $$y_i=10.24749+0.4886925xx_t$$
+
+```{r}
+#Deteksi autokorelasi
+dwtest(modelHL)
+```
+
+Hasil uji Durbin-Watson juga menunjukkan bawah nilai DW sebesar $1.9393$ berada pada selang daerah tidak ada autokorelasi, yaitu pada rentang DU \< DW \< 4-DU. Hal tersebut juga didukung oleh *p-value* sebesar $0.378$, di mana *p-value* \> $\alpha$=5%. Artinya tak tolak $H_0$ atau belum cukup bukti menyatakan bahwa ada autokorelasi dalam data dengan metode Hildreth-Lu pada taraf nyata 5%.
+
+# Simpulan
+
+1. Model regresi awal (OLS) Sales terhadap Advertising memiliki R² = 0.9596, namun uji Durbin-Watson menunjukkan autokorelasi positif yang sangat kuat pada sisaan (DW = 0.1620 << dL = 1.44).
+
+2. Penanganan dengan Cochrane-Orcutt dan Hildreth-Lu sama-sama berhasil menghilangkan autokorelasi, dengan DW baru sekitar 1.94 pada kedua metode.
+
+3. Model akhir yang direkomendasikan (mis. dari Cochrane-Orcutt):
+Ŷt = 10.2523 + 0.4885 Xt,   ρ̂ = 0.9031
+
+
+
+
