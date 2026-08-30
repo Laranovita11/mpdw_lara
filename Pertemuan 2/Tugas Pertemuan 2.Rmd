@@ -1,0 +1,259 @@
+---
+title: " Tugas Pertemuan 2 - MPDW"
+author: "Lara Tria Novita"
+output:
+  html_document:
+    theme: yeti
+    toc: true
+    toc_float: true
+  word_document: default
+  pdf_document: default
+---
+
+# Pemanggilan *Packages*
+
+```{r}
+#install.packages("https://cran.r-project.org/src/contrib/Archive/orcutt/orcutt_2.1.tar.gz", repos = NULL, type = "source")
+```
+
+```{r}
+#install.packages("orcutt")
+```
+
+```{r}
+library(dplyr)
+library(TTR)
+library(forecast)
+library(lmtest) #digunakan untuk uji formal pendeteksian autokorelasi
+library(orcutt) #untuk membuat model regresi Cochrane-Orcutt
+library(HoRM) #untuk membuat model regresi Hildreth-Lu
+```
+
+# Input Data
+
+```{r}
+period <- c(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20)
+marketshare <- c(3.63,4.20,3.33,4.54,2.89,4.87,4.90,5.29,6.18,7.20,7.25,6.09,6.80,8.65,8.43,8.29,7.18,7.90,8.45,8.23)
+price <- c(0.97,0.95,0.99,0.91,0.98,0.90,0.89,0.86,0.85,0.82,0.79,0.83,0.81,0.77,0.76,0.80,0.83,0.79,0.76,0.78)
+dt <- cbind(period,marketshare,price)
+dt <- as.data.frame(dt)
+dt
+```
+
+# Eksplorasi Data
+
+Sebelum melakukan regresi, akan diperlihatkan *plot time-series* dari market share dan price untuk melihat pola pergerakan sepanjang waktu.
+
+```{r}
+#Membentuk objek time series
+ts_market<-ts(dt$marketshare)
+ts_price <-ts(dt$price)
+
+#Membuat plot time series
+ts.plot(ts_market, xlab="Period", ylab="Market Share", main= "Time Series Plot of Market Share")
+points(ts_market)
+
+ts.plot(ts_price, xlab="Period", ylab="Price", main="Time Series Plot of Price")
+points(ts_price)
+```
+
+Terlihat bahwa market share cenderung meningkat seiring waktu, sedangkan price cenderung menurun. Hal ini mengindikasikan adanya hubungan (korelasi) antara price terhadap market share, sekaligus adanya pola/tren yang berjalan seiring waktu,kondisi yang berpotensi menimbulkan autokorelasi pada sisaan jika keduanya diregresikan.
+
+```{r}
+#scatterplot
+plot(dt$price,dt$marketshare, xlab = "Price", ylab="Market Share", main = "Scatterplot Market Share vs Price", pch = 19, col = "steelblue")
+abline(lm(dt$marketshare ~ dt$price), col = "red", lwd = 2)
+```
+
+# Pemodelan Regresi
+```{r}
+model <- lm(marketshare ~ price, data=dt)
+summary(model)
+
+```
+Berdasarkan output di atas, diperoleh model regresi:
+    Ŷt = 26.910 − 24.290 Xt
+dengan nilaiR² = 0,9511yang berarti sekitar 95,11% keragaman market share dapat dijelaskan oleh price. 
+
+#Pemeriksaan Asumsi Autokorelasi
+```{r}
+#sisaan 
+sisaan<- residuals(model)
+
+#Diagnostik dengan eksploratif
+par(mfrow = c(2,2),mar=c(3,3,2,1))
+qqnorm(sisaan)
+
+qqline(sisaan, col = "steelblue", lwd = 2)
+
+hist(sisaan, col = "steelblue")
+plot(seq_along(sisaan), sisaan,
+     col = "steelblue",
+     pch = 20,
+     xlab = "Order",
+     ylab = "Sisaan",
+     main = "Sisaan vs Order")
+lines(seq_along(sisaan), sisaan, col = "red")
+abline(a = 0, b = 0, lwd = 2)
+```
+
+QQ-plot menyebar normal namun histogram tidak menyebar normal.
+Plot sisaan menunjukkan pola yang tidak acak — residual cenderung bergerak naik-turun secara berkelompok (residual positif dan negatif cenderung berkumpul secara berurutan), sehingga terdapat indikasi awal adanya autokorelasi positif pada sisaan.
+
+```{r}
+#Melihat Sisaan Menyebar Normal/Tidak
+#H0: sisaan mengikuti sebaran normal
+#H1: sisaan tidak mengikuti sebaran normal
+shapiro.test(sisaan)
+ks.test(sisaan, "pnorm", mean=mean(sisaan), sd=sd(sisaan))
+```
+
+Berdasarkan uji formal Saphiro-Wilk dan Kolmogorov-Smirnov didapatkan nilai *p-value* \> $\alpha$ (5%). Artinya, cukup bukti untuk menyatakan sisaan berdistribusi normal.
+
+```{r}
+#ACF dan PACF identifikasi autokorelasi
+par(mfrow = c(1,2))
+acf(sisaan)
+pacf(sisaan)
+```
+
+Berdasarkan plot ACF dan PACF, terlihat semua dalam rentang batas dan tidak ada lag yang signifikan. Namun, untuk lebih memastikan akan dilakukan uji formal dengan uji Durbin Watson.
+
+```{r}
+#Deteksi autokorelasi dengan uji-Durbin Watson
+#H0: tidak ada autokorelasi
+#H1: ada autokorelasi
+dwtest(model)
+```
+
+Nilai statistik Durbin-Watson (DW) = 1.1358 dengan p-value ≈ 0.009813. Untuk n = 20 dan k = 1 peubah penjelas pada taraf nyata 5%, nilai kritis Durbin-Watson adalah dL ≈ 1.20 dan dU ≈ 1.41. Karena p-value < 0.05, atau secara ekuivalen:
+DW = 0.16204 < dL = 1.20
+
+maka H0 ditolak, yang berarti terdapat autokorelasi (autokorelasi positif) pada sisaan model regresi. Hasil ini konsisten dengan pola yang terlihat pada plot sisaan sebelumnya. Oleh karena itu, diperlukan penangan autokorelasi. Penanganan yang akan digunakan menggunakan dua metode, yaitu Cochrane-Orcutt dan Hildret-Lu.
+
+# Penanganan Autokorelasi
+
+## Metode Cochrane-Orcutt
+
+Penanganan autokorelasi dilakukan dengan metode Cochrane-Orcutt, yaitu melakukan transformasi generalized least squares (GLS) secara iteratif hingga diperoleh nilai koefisien autokorelasi (ρ) yang konvergen.
+
+```{r}
+#Penanganan Autokorelasi Cochrane-Orcutt
+modelCO<-cochrane.orcutt(model)
+modelCO
+```
+
+Hasil keluaran model setelah dilakukan penanganan adalah sebagai berikut. $$y_i= 26.72209 - 24.08413 x_t$$ Hasil juga menunjukkan bahwa nilai DW dan p-value meningkat menjadi $1.95804 $ dan $0.415$. Nilai DW sudah berada pada rentang DU \< DW \< 4-DU. Hal tersebut juga didukung dengan nilai *p-value* \> 0.05, artinya belum cukup bukti menyatakan bahwa sisaan terdapat autokorelasi pada taraf nyata 5%. Untuk nilai $ρ ̂$ optimum yang digunakan adalah $0.4252321$. Nilai tersebut dapat diketahui dengan *syntax* berikut.
+
+```{r}
+#Rho optimum
+rho<- modelCO$rho
+rho
+```
+
+
+
+### Plot sisaan setelah Penanganan
+```{r}
+sisaan.co <- dt$marketshare-(model$coefficients[1] + model$coefficients[2] * dt$price)
+
+plot(period, sisaan.co, type = "o", pch = 19, col = "darkgreen",
+     xlab = "Period", ylab = "Residual",
+     main = "Plot Sisaan terhadap Waktu (Setelah Cochrane-Orcutt)")
+abline(h = 0, lty = 2)
+```
+
+Pola sisaan setelah penanganan terlihat lebih acak dan tidak menunjukkan pola sistematis dibandingkan dengan plot sisaan sebelum penanganan.
+
+## Metode Hildreth-Lu
+
+Penanganan kedua adalah menggunakan metode Hildreth-Lu. Metode ini akan mencari nilai SSE terkecil.
+```{r}
+library(HoRM)
+
+# ambil y dan x (satu prediktor saja)
+y <- dt$marketshare
+x <- dt$price
+
+# grid search rho 0–0.9
+r <- seq(0, 0.9, by = 0.1)
+tab <- data.frame(
+  rho = r,
+  SSE = sapply(r, function(rr) deviance(hildreth.lu(y, x, rr)))
+)
+
+
+
+tab            # tabel rho vs SSE
+rho_hat <- tab$rho[which.min(tab$SSE)]   # rho terbaik
+fit_hl  <- hildreth.lu(y, x, rho_hat)    # model final
+summary(fit_hl)
+
+```
+
+```{r}
+#Penanganan Autokorelasi Hildreth lu
+# Hildreth-Lu
+hildreth.lu.func<- function(r, model){
+  x <- model.matrix(model)[,-1]
+  y <- model.response(model.frame(model))
+  n <- length(y)
+  t <- 2:n
+  y <- y[t]-r*y[t-1]
+  x <- x[t]-r*x[t-1]
+  
+  return(lm(y~x))
+}
+
+#Pencariab rho yang meminimumkan SSE
+r <- c(seq(0.1,0.9, by= 0.1))
+tab <- data.frame("rho" = r, "SSE" = sapply(r, function(i){deviance(hildreth.lu.func(i, model))}))
+round(tab, 4)
+```
+
+Pertama-tama akan dicari di mana kira-kira $ρ$ yang menghasilkan SSE minimum. Pada hasil di atas terlihat $ρ$ minimum ketika 0.4. Namun, hasil tersebut masih kurang teliti sehingga akan dicari kembali $ρ$ yang lebih optimum dengan ketelitian yang lebih. Jika sebelumnya jarak antar $ρ$ yang dicari adalah 0.1, kali ini jarak antar $ρ$ adalah 0.001 dan dilakukan pada selang 0.3 sampai dengan 0.6.
+
+```{r}
+#Rho optimal di sekitar 0.4
+rOpt <- seq(0.3,0.6, by= 0.001)
+tabOpt <- data.frame("rho" = rOpt, "SSE" = sapply(rOpt, function(i){deviance(hildreth.lu.func(i, model))}))
+head(tabOpt[order(tabOpt$SSE),])
+
+#Grafik SSE optimum
+par(mfrow = c(1,1))
+plot(tab$SSE ~ tab$rho , type = "l", xlab = "Rho", ylab = "SSE")
+abline(v = tabOpt[tabOpt$SSE==min(tabOpt$SSE),"rho"], lty = 2, col="red",lwd=2)
+text(x=0.341, y=0.2397500, labels = "rho=0.341", cex = 0.8)
+```
+
+Perhitungan yang dilakukan aplikasi `R` menunjukkan bahwa nilai $ρ$ optimum, yaitu saat SSE terkecil terdapat pada nilai $ρ=0.425$. Hal tersebut juga ditunjukkan pada plot. Selanjutnya, model dapat didapatkan dengan mengevaluasi nilai $ρ$ ke dalam fungsi `hildreth.lu.func`, serta dilanjutkan dengan pengujian autokorelasi dengan uji Durbin-Watson. Namun, setelah pengecekan tersebut tidak lupa koefisien regresi tersebut digunakan untuk transformasi balik. Persamaan hasil transformasi itulah yang menjadi persamaan sesungguhnya.
+
+```{r}
+#Model terbaik
+modelHL <- hildreth.lu.func(0.341, model)
+summary(modelHL)
+
+#Transformasi Balik
+cat("y = ", coef(modelHL)[1]/(1-0.341), "+", coef(modelHL)[2],"x", sep = "")
+```
+
+Setelah dilakukan tranformasi balik, didapatkan model dengan metode Hildreth-Lu sebagai berikut. $$y_i=26.90551-24.30265x_t$$
+
+```{r}
+#Deteksi autokorelasi
+dwtest(modelHL)
+```
+
+Hasil uji Durbin-Watson juga menunjukkan bawah nilai DW sebesar $1.8146$ berada pada selang daerah tidak ada autokorelasi, yaitu pada rentang DU \< DW \< 4-DU. Hal tersebut juga didukung oleh *p-value* sebesar $0.2808$, di mana *p-value* \> $\alpha$=5%. Artinya tak tolak $H_0$ atau belum cukup bukti menyatakan bahwa ada autokorelasi dalam data nilai IPM dengan metode Hildreth-Lu pada taraf nyata 5%.
+
+
+# Simpulan
+
+1. Model regresi awal (OLS) market share terhadap price menghasilkan R² = 0.9511, namun uji Durbin-Watson menunjukkan adanya autokorelasi positif pada sisaan (DW = 1.1358 < dL = 1.20).
+
+2. Penanganan dengan metode Cochrane-Orcutt berhasil menghilangkan autokorelasi pada sisaan, ditunjukkan oleh nilai DW baru sebesar 1.9580 yang sudah mendekati 2.
+
+3. Model akhir yang direkomendasikan setelah penanganan autokorelasi adalah:
+Ŷt = 26.7221 − 24.0841 Xt,   ρ̂ = 0.4252
+
+
