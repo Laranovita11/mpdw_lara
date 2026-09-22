@@ -1,0 +1,522 @@
+---
+title: "Tugas Proses MA(2), AR(2), dan ARMA(2,2)"
+author: "Lara Tria Noita"
+output: rmdformats::readthedown
+---
+
+```{r}
+library(ggplot2)
+library(tsibble)
+library(tseries)
+library(TSA)
+library(ggpubr)
+```
+
+```{r}
+set.seed(1234)
+n <- 300
+```
+
+## Proses MA(2)
+
+Model MA(2) yang akan dibangkitkan mengikuti persamaan:
+
+$$
+Y_t = e_t + \theta_1 e_{t-1} + \theta_2 e_{t-2}
+$$
+
+dengan $\theta_1 = 0.4$, $\theta_2 = 0.6$, dan $e_t \sim N(0,1)$
+sebanyak 300 data.
+
+### Pembangkitan Data
+
+#### Cara Manual
+
+```{r}
+theta1 <- 0.4
+theta2 <- 0.6
+
+set.seed(1234)
+e <- rnorm(n + 2)
+ma2_manual <- numeric(n)
+
+for (t in 3:(n + 2)) {
+  ma2_manual[t - 2] <- e[t] + theta1 * e[t - 1] + theta2 * e[t - 2]
+}
+
+ma2_manual <- ts(ma2_manual)
+```
+
+#### Dengan `arima.sim`
+
+```{r}
+set.seed(1234)
+ma2_sim <- arima.sim(n = n, model = list(ma = c(theta1, theta2))) |> ts()
+```
+
+### Plot *Time Series*
+
+```{r}
+plot_ma2_manual <- ma2_manual |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) + geom_line() + theme_bw() +
+  xlab("Obs") + ylab("Nilai") + ggtitle("MA(2) - Manual")
+
+plot_ma2_sim <- ma2_sim |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) + geom_line() + theme_bw() +
+  xlab("Obs") + ylab("Nilai") + ggtitle("MA(2) - arima.sim")
+
+ggarrange(plot_ma2_manual, plot_ma2_sim, nrow = 2)
+```
+
+Kedua plot *time series* menunjukkan data yang menyebar di sekitar
+nilai tengah nol dengan lebar pita yang relatif konstan sepanjang
+waktu, sehingga secara visual data bangkitan terindikasi **stasioner
+dalam rataan dan ragam**.
+
+### Plot ACF
+
+```{r}
+acf(ma2_sim, main = "ACF MA(2)")
+```
+
+Plot ACF menunjukkan pola *cuts off* setelah lag ke-2, sesuai dengan
+sifat teoretis proses MA(2) yang hanya memiliki autokorelasi tidak nol
+sampai lag ke-2.
+
+### Plot PACF
+
+```{r}
+pacf(ma2_sim, main = "PACF MA(2)")
+```
+
+Plot PACF menunjukkan pola *tails off* (menurun secara bertahap dan
+membentuk gelombang), sesuai dengan karakteristik teoretis proses MA.
+
+### Plot EACF
+
+```{r}
+eacf(ma2_sim)
+```
+
+Pada plot EACF, segitiga nol mulai terbentuk pada kolom AR = 0 dan
+baris MA = 2, yang mengindikasikan proses MA(2).
+
+### Identifikasi Kestasioneran
+
+Proses MA berorde hingga selalu stasioner untuk sembarang nilai
+parameter $\theta$, karena $Y_t$ merupakan kombinasi linear terhingga
+dari *white noise* yang stasioner. Hal ini didukung oleh plot *time
+series* yang stabil di sekitar rataan nol dan plot ACF yang *cuts off*
+pada lag ke-2. Dengan demikian, data MA(2) yang dibangkitkan
+**stasioner dalam rataan dan ragam**.
+
+### Scatterplot
+
+```{r}
+df_ma2 <- data.frame(
+  Yt   = ma2_sim[4:n],
+  Yt_1 = ma2_sim[3:(n - 1)],
+  Yt_2 = ma2_sim[2:(n - 2)],
+  Yt_3 = ma2_sim[1:(n - 3)]
+)
+
+p1 <- ggplot(df_ma2, aes(x = Yt_1, y = Yt)) + geom_point() + theme_bw() +
+  xlab(expression(Y[t-1])) + ylab(expression(Y[t])) + ggtitle("Yt vs Yt-1")
+
+p2 <- ggplot(df_ma2, aes(x = Yt_2, y = Yt)) + geom_point() + theme_bw() +
+  xlab(expression(Y[t-2])) + ylab(expression(Y[t])) + ggtitle("Yt vs Yt-2")
+
+p3 <- ggplot(df_ma2, aes(x = Yt_3, y = Yt)) + geom_point() + theme_bw() +
+  xlab(expression(Y[t-3])) + ylab(expression(Y[t])) + ggtitle("Yt vs Yt-3")
+
+ggarrange(p1, p2, p3, nrow = 1)
+```
+
+Scatterplot $Y_t$ dengan $Y_{t-1}$ dan $Y_t$ dengan $Y_{t-2}$
+menunjukkan pola sebaran yang cenderung linear (berkorelasi),
+sedangkan scatterplot $Y_t$ dengan $Y_{t-3}$ menunjukkan sebaran acak
+tanpa pola tertentu, sesuai dengan sifat MA(2) yang hanya memiliki
+autokorelasi pada lag 1 dan 2.
+
+### Perhitungan Autokorelasi
+
+#### Dari Data Bangkitan
+
+```{r}
+acf(ma2_sim, plot = FALSE)$acf[1:4]
+```
+
+#### Secara Teoretis
+
+Fungsi autokorelasi proses MA(2) dirumuskan sebagai:
+
+$$
+\rho_1 = \frac{\theta_1+\theta_1\theta_2}{1+\theta_1^2+\theta_2^2}, \quad
+\rho_2 = \frac{\theta_2}{1+\theta_1^2+\theta_2^2}, \quad
+\rho_k = 0,\ k \geq 3
+$$
+
+```{r}
+rho1_ma2 <- (theta1 + theta1 * theta2) / (1 + theta1^2 + theta2^2)
+rho2_ma2 <- theta2 / (1 + theta1^2 + theta2^2)
+
+c(rho0 = 1, rho1 = rho1_ma2, rho2 = rho2_ma2, rho3 = 0)
+```
+
+Nilai ini juga dapat langsung diperoleh dengan fungsi `ARMAacf()`:
+
+```{r}
+ARMAacf(ma = c(theta1, theta2), lag.max = 5)
+```
+
+Nilai autokorelasi dari data bangkitan mendekati nilai teoretis, dengan
+sedikit perbedaan yang wajar karena data bangkitan bersifat acak
+(galat sampling).
+
+## Proses AR(2)
+
+Model AR(2) yang akan dibangkitkan mengikuti persamaan:
+
+$$
+Y_t = \phi_1 Y_{t-1} + \phi_2 Y_{t-2} + e_t
+$$
+
+dengan $\phi_1 = 0.5$, $\phi_2 = 0.2$, dan $e_t \sim N(0,1)$ sebanyak
+300 data.
+
+### Pembangkitan Data
+
+#### Cara Manual
+
+```{r}
+phi1 <- 0.5
+phi2 <- 0.2
+burn <- 50
+
+set.seed(1234)
+e_ar <- rnorm(n + burn)
+ar2_manual <- numeric(n + burn)
+
+for (t in 3:(n + burn)) {
+  ar2_manual[t] <- phi1 * ar2_manual[t - 1] + phi2 * ar2_manual[t - 2] + e_ar[t]
+}
+
+# buang burn-in agar efek nilai awal (Y1 = Y2 = 0) hilang
+ar2_manual <- ts(ar2_manual[(burn + 1):(n + burn)])
+```
+
+#### Dengan `arima.sim`
+
+```{r}
+set.seed(1234)
+ar2_sim <- arima.sim(n = n, model = list(ar = c(phi1, phi2))) |> ts()
+```
+
+### Plot *Time Series*
+
+```{r}
+plot_ar2_manual <- ar2_manual |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) + geom_line() + theme_bw() +
+  xlab("Obs") + ylab("Nilai") + ggtitle("AR(2) - Manual")
+
+plot_ar2_sim <- ar2_sim |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) + geom_line() + theme_bw() +
+  xlab("Obs") + ylab("Nilai") + ggtitle("AR(2) - arima.sim")
+
+ggarrange(plot_ar2_manual, plot_ar2_sim, nrow = 2)
+```
+
+Kedua plot *time series* menyebar di sekitar nilai tengah nol dengan
+lebar pita yang relatif konstan, sehingga secara visual data bangkitan
+terindikasi **stasioner dalam rataan dan ragam**.
+
+### Plot ACF
+
+```{r}
+acf(ar2_sim, main = "ACF AR(2)")
+```
+
+Plot ACF menunjukkan pola *tails off* (menurun secara eksponensial),
+sesuai dengan karakteristik teoretis proses AR.
+
+### Plot PACF
+
+```{r}
+pacf(ar2_sim, main = "PACF AR(2)")
+```
+
+Plot PACF menunjukkan pola *cuts off* setelah lag ke-2, sesuai dengan
+sifat teoretis proses AR(2) yang hanya memiliki autokorelasi parsial
+tidak nol sampai lag ke-2.
+
+### Plot EACF
+
+```{r}
+eacf(ar2_sim)
+```
+
+Pada plot EACF, segitiga nol mulai terbentuk pada kolom AR = 2 dan
+baris MA = 0, yang mengindikasikan proses AR(2).
+
+### Identifikasi Kestasioneran
+
+Syarat kestasioneran proses AR(2) adalah:
+
+$$
+\phi_1+\phi_2<1,\quad \phi_2-\phi_1<1,\quad |\phi_2|<1
+$$
+
+```{r}
+c(
+  syarat1 = phi1 + phi2 < 1,
+  syarat2 = phi2 - phi1 < 1,
+  syarat3 = abs(phi2) < 1
+)
+```
+
+Ketiga syarat terpenuhi (bernilai `TRUE`), sehingga secara teoretis
+proses AR(2) dengan $\phi_1 = 0.5$ dan $\phi_2 = 0.2$ **stasioner**.
+Hal ini sesuai dengan hasil eksplorasi plot *time series*, ACF, dan
+PACF di atas.
+
+### Scatterplot
+
+```{r}
+df_ar2 <- data.frame(
+  Yt   = ar2_sim[4:n],
+  Yt_1 = ar2_sim[3:(n - 1)],
+  Yt_2 = ar2_sim[2:(n - 2)],
+  Yt_3 = ar2_sim[1:(n - 3)]
+)
+
+p1 <- ggplot(df_ar2, aes(x = Yt_1, y = Yt)) + geom_point() + theme_bw() +
+  xlab(expression(Y[t-1])) + ylab(expression(Y[t])) + ggtitle("Yt vs Yt-1")
+
+p2 <- ggplot(df_ar2, aes(x = Yt_2, y = Yt)) + geom_point() + theme_bw() +
+  xlab(expression(Y[t-2])) + ylab(expression(Y[t])) + ggtitle("Yt vs Yt-2")
+
+p3 <- ggplot(df_ar2, aes(x = Yt_3, y = Yt)) + geom_point() + theme_bw() +
+  xlab(expression(Y[t-3])) + ylab(expression(Y[t])) + ggtitle("Yt vs Yt-3")
+
+ggarrange(p1, p2, p3, nrow = 1)
+```
+
+Berbeda dengan MA(2), ketiga scatterplot ($Y_t$ vs $Y_{t-1}$, $Y_{t-2}$,
+maupun $Y_{t-3}$) pada proses AR(2) menunjukkan pola sebaran yang masih
+cenderung linear meskipun semakin melemah seiring bertambahnya lag,
+karena pada proses AR autokorelasi tidak terputus (*tails off*) dan
+secara teoretis tidak pernah benar-benar nol.
+
+### Perhitungan Autokorelasi
+
+#### Dari Data Bangkitan
+
+```{r}
+acf(ar2_sim, plot = FALSE)$acf[1:4]
+```
+
+#### Secara Teoretis
+
+Fungsi autokorelasi proses AR(2) diperoleh dari persamaan
+Yule-Walker:
+
+$$
+\rho_1 = \frac{\phi_1}{1-\phi_2}, \quad
+\rho_2 = \phi_2+\frac{\phi_1^2}{1-\phi_2}, \quad
+\rho_k = \phi_1\rho_{k-1}+\phi_2\rho_{k-2},\ k\geq 3
+$$
+
+```{r}
+rho1_ar2 <- phi1 / (1 - phi2)
+rho2_ar2 <- phi2 + (phi1^2) / (1 - phi2)
+rho3_ar2 <- phi1 * rho2_ar2 + phi2 * rho1_ar2
+
+c(rho0 = 1, rho1 = rho1_ar2, rho2 = rho2_ar2, rho3 = rho3_ar2)
+```
+
+Nilai ini juga dapat langsung diperoleh dengan fungsi `ARMAacf()`:
+
+```{r}
+ARMAacf(ar = c(phi1, phi2), lag.max = 5)
+```
+
+Nilai autokorelasi dari data bangkitan mendekati nilai teoretis, dengan
+sedikit perbedaan yang wajar karena galat sampling.
+
+## Proses ARMA(2,2)
+
+Model ARMA(2,2) yang akan dibangkitkan mengikuti persamaan:
+
+$$
+Y_t = \phi_1 Y_{t-1}+\phi_2 Y_{t-2}+e_t+\theta_1 e_{t-1}+\theta_2 e_{t-2}
+$$
+
+dengan $\phi_1 = 0.5$, $\phi_2 = 0.2$, $\theta_1 = 0.4$, $\theta_2 = 0.6$,
+dan $e_t \sim N(0,1)$ sebanyak 300 data.
+
+### Pembangkitan Data
+
+#### Cara Manual
+
+```{r}
+set.seed(1234)
+e_arma <- rnorm(n + burn)
+arma22_manual <- numeric(n + burn)
+
+for (t in 3:(n + burn)) {
+  arma22_manual[t] <- phi1 * arma22_manual[t - 1] + phi2 * arma22_manual[t - 2] +
+    e_arma[t] + theta1 * e_arma[t - 1] + theta2 * e_arma[t - 2]
+}
+
+arma22_manual <- ts(arma22_manual[(burn + 1):(n + burn)])
+```
+
+#### Dengan `arima.sim`
+
+```{r}
+set.seed(1234)
+arma22_sim <- arima.sim(
+  n = n,
+  model = list(ar = c(phi1, phi2), ma = c(theta1, theta2))
+) |> ts()
+```
+
+### Plot *Time Series*
+
+```{r}
+plot_arma_manual <- arma22_manual |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) + geom_line() + theme_bw() +
+  xlab("Obs") + ylab("Nilai") + ggtitle("ARMA(2,2) - Manual")
+
+plot_arma_sim <- arma22_sim |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) + geom_line() + theme_bw() +
+  xlab("Obs") + ylab("Nilai") + ggtitle("ARMA(2,2) - arima.sim")
+
+ggarrange(plot_arma_manual, plot_arma_sim, nrow = 2)
+```
+
+Kedua plot *time series* menyebar di sekitar nilai tengah nol dengan
+lebar pita yang relatif konstan, sehingga secara visual data bangkitan
+terindikasi **stasioner dalam rataan dan ragam**.
+
+### Plot ACF
+
+```{r}
+acf(arma22_sim, main = "ACF ARMA(2,2)")
+```
+
+Plot ACF menunjukkan pola *tails off*, gabungan dari komponen AR dan
+MA yang sama-sama memengaruhi bentuk peluruhan autokorelasi.
+
+### Plot PACF
+
+```{r}
+pacf(arma22_sim, main = "PACF ARMA(2,2)")
+```
+
+Plot PACF juga menunjukkan pola *tails off*, bukan *cuts off* tegas
+pada lag tertentu, karena adanya komponen MA yang membuat PACF meluruh
+secara bertahap.
+
+### Plot EACF
+
+```{r}
+eacf(arma22_sim)
+```
+
+Pada plot EACF, segitiga nol mulai terbentuk pada sekitar kolom AR = 2
+dan baris MA = 2, yang mengindikasikan proses ARMA(2,2).
+
+### Identifikasi Kestasioneran
+
+Kestasioneran proses ARMA ditentukan oleh komponen AR-nya saja
+(komponen MA selalu stasioner untuk order hingga). Dengan syarat yang
+sama seperti AR(2):
+
+```{r}
+c(
+  syarat1 = phi1 + phi2 < 1,
+  syarat2 = phi2 - phi1 < 1,
+  syarat3 = abs(phi2) < 1
+)
+```
+
+Ketiga syarat terpenuhi sehingga proses ARMA(2,2) dengan parameter di
+atas **stasioner**. Hal ini sesuai dengan hasil eksplorasi plot *time
+series*, ACF, dan PACF.
+
+### Scatterplot
+
+```{r}
+df_arma <- data.frame(
+  Yt   = arma22_sim[4:n],
+  Yt_1 = arma22_sim[3:(n - 1)],
+  Yt_2 = arma22_sim[2:(n - 2)],
+  Yt_3 = arma22_sim[1:(n - 3)]
+)
+
+p1 <- ggplot(df_arma, aes(x = Yt_1, y = Yt)) + geom_point() + theme_bw() +
+  xlab(expression(Y[t-1])) + ylab(expression(Y[t])) + ggtitle("Yt vs Yt-1")
+
+p2 <- ggplot(df_arma, aes(x = Yt_2, y = Yt)) + geom_point() + theme_bw() +
+  xlab(expression(Y[t-2])) + ylab(expression(Y[t])) + ggtitle("Yt vs Yt-2")
+
+p3 <- ggplot(df_arma, aes(x = Yt_3, y = Yt)) + geom_point() + theme_bw() +
+  xlab(expression(Y[t-3])) + ylab(expression(Y[t])) + ggtitle("Yt vs Yt-3")
+
+ggarrange(p1, p2, p3, nrow = 1)
+```
+
+Seperti pada AR(2), scatterplot pada ketiga lag ARMA(2,2) masih
+menunjukkan pola sebaran yang cenderung linear meskipun semakin
+melemah pada lag yang lebih jauh, karena adanya komponen AR yang
+membuat autokorelasi meluruh secara bertahap (*tails off*) dan tidak
+pernah benar-benar terputus.
+
+### Perhitungan Autokorelasi
+
+#### Dari Data Bangkitan
+
+```{r}
+acf(arma22_sim, plot = FALSE)$acf[1:4]
+```
+
+#### Secara Teoretis
+
+Untuk proses ARMA(2,2), autokorelasi pada lag $k>2$ (setelah orde MA)
+mengikuti rekursi yang sama seperti komponen AR:
+
+$$
+\rho_k = \phi_1\rho_{k-1}+\phi_2\rho_{k-2}, \quad k>2
+$$
+
+sedangkan $\rho_0$, $\rho_1$, dan $\rho_2$ melibatkan bobot $\psi$ dari
+representasi $MA(\infty)$ sehingga tidak memiliki bentuk tertutup yang
+sederhana. Oleh karena itu, nilai teoretisnya dihitung menggunakan
+fungsi `ARMAacf()`:
+
+```{r}
+ARMAacf(ar = c(phi1, phi2), ma = c(theta1, theta2), lag.max = 5)
+```
+
+Nilai autokorelasi dari data bangkitan mendekati nilai teoretis
+tersebut, dengan sedikit perbedaan yang wajar karena data bangkitan
+bersifat acak (galat sampling).
+
+## Ringkasan
+
+```{r}
+ringkasan <- data.frame(
+  Proses = c("MA(2)", "AR(2)", "ARMA(2,2)"),
+  Stasioner = c("Ya", "Ya", "Ya"),
+  Pola_ACF = c("Cuts off lag 2", "Tails off", "Tails off"),
+  Pola_PACF = c("Tails off", "Cuts off lag 2", "Tails off")
+)
+ringkasan
+```
+
+Ketiga proses yang dibangkitkan (MA(2), AR(2), dan ARMA(2,2)) bersifat
+**stasioner dalam rataan dan ragam**, dengan pola ACF dan PACF yang
+sesuai dengan karakteristik teoretis masing-masing model: MA(2) *cuts
+off* pada ACF, AR(2) *cuts off* pada PACF, dan ARMA(2,2) *tails off*
+pada keduanya.
